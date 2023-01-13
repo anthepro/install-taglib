@@ -1,0 +1,86 @@
+name: Install TagLib
+description: Checkout TagLib master, build it and install to the specified lib/include dirs.
+branding:
+  icon: music
+  color: green
+
+inputs:
+  includedir:
+    type: string
+    description: The directory where the header file should be placed, relative to the current workspace.
+    required: true
+    default: include
+  libdir:
+    type: string
+    description: The directory where the lib file(s) should be placed, relative to the current workspace.
+    required: true
+    default: lib
+  static:
+    type: boolean
+    description: Whether to build a static or dynamic library.
+    required: true
+    default: true
+  artifact:
+    type: boolean
+    description: Whether to create an artifact that contains lib files and headers.
+    required: true
+    default: false
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout taglib repository
+      uses: actions/checkout@v3
+      with:
+        repository: taglib/taglib
+        path: taglib
+
+    - name: Set up Ubuntu
+      run: sudo apt install -y libcppunit-dev zlib1g-dev
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      if: runner.os == 'Linux'
+
+    - name: Set up macOS
+      run: brew install cppunit
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      if: runner.os == 'macOS'
+
+    - name: Set up Windows
+      run: vcpkg install cppunit --triplet x64-windows
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      if: runner.os == 'Windows'
+
+    - name: Configure
+      env:
+        OS_ARGS: ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"' || runner.os == 'macOS' && '-DCMAKE_OSX_DEPLOYMENT_TARGET=10.10 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"' || '' }}
+        STATIC_ARGS: ${{ inputs.static == 'true' && '-DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_RUNTIME=ON' || '-DBUILD_SHARED_LIBS=ON -DENABLE_STATIC_RUNTIME=OFF' }}
+      run: >
+        cmake -Btaglib/build -Staglib
+        -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BINDINGS=OFF
+        -DCMAKE_BUILD_TYPE=Release -DWITH_ZLIB=OFF
+        $STATIC_ARGS $CMAKE_EXTRA_ARGS
+      shell: bash
+
+    - name: Build
+      env:
+        CMAKE_INSTALL_INCLUDEDIR: ${{ inputs.includedir }}
+        CMAKE_INSTALL_LIBDIR: ${{ inputs.libdir }}
+      run: |
+        cmake --build taglib/build --config Release
+        cmake --install taglib/build --config Release --prefix ${{ github.workspace }}
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+
+    - name: Create artifact
+      env:
+        CMAKE_INSTALL_INCLUDEDIR: ${{ inputs.includedir }}
+        CMAKE_INSTALL_LIBDIR: ${{ inputs.libdir }}
+      run: cmake --install taglib/build --config Release --prefix ${{ runner.temp }}/artifact
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      if: inputs.artifact == 'true'
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: TagLib-${{ runner.os }}
+        path: ${{ runner.temp }}/artifact/
+      if: inputs.artifact == 'true'
